@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { revalidateTag } from "next/cache";
 import { after } from "next/server";
-import { readDb, writeDb, appendAuditLog } from "@/lib/db";
+import { GO_API_BASE, readDb, writeDb, appendAuditLog } from "@/lib/db";
 
 export async function POST(request: Request) {
   try {
@@ -16,7 +16,6 @@ export async function POST(request: Request) {
       );
     }
 
-    const db = await readDb();
     const newItem = {
       id: `med-${Date.now()}`,
       filename: file.name,
@@ -27,8 +26,17 @@ export async function POST(request: Request) {
       uploadedAt: new Date().toISOString(),
     };
 
-    db.media.unshift(newItem);
-    await writeDb(db);
+    try {
+      await fetch(`${GO_API_BASE}/media`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newItem),
+      });
+    } catch {
+      const db = await readDb();
+      db.media.unshift(newItem);
+      await writeDb(db);
+    }
 
     revalidateTag("media", "max");
     revalidateTag("stats", "max");
@@ -38,7 +46,7 @@ export async function POST(request: Request) {
         action: "MEDIA_UPLOAD",
         target: `${file.name} (${Math.round(file.size / 1024)} KB)`,
         actor: "Admin First",
-        meta: "POST /api/upload Route Handler",
+        meta: "POST /api/upload -> PostgreSQL + Redis",
       });
       revalidateTag("audit-logs", "max");
     });

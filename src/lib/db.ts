@@ -269,7 +269,22 @@ const INITIAL_DB: DatabaseSchema = {
   },
 };
 
+export const GO_API_BASE =
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api/v1";
+
 export async function readDb(): Promise<DatabaseSchema> {
+  try {
+    const res = await fetch(`${GO_API_BASE}/content?all=1`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(2000),
+    });
+    if (res.ok) {
+      return (await res.json()) as DatabaseSchema;
+    }
+  } catch {
+    // Fallback to local file if Go API is offline
+  }
+
   try {
     const raw = await fs.readFile(DB_FILE, "utf-8");
     return JSON.parse(raw) as DatabaseSchema;
@@ -288,6 +303,18 @@ export async function writeDb(data: DatabaseSchema): Promise<void> {
 export async function appendAuditLog(
   entry: Omit<AuditLog, "id" | "timestamp">
 ): Promise<void> {
+  try {
+    const res = await fetch(`${GO_API_BASE}/audit-logs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(entry),
+      signal: AbortSignal.timeout(2000),
+    });
+    if (res.ok) return;
+  } catch {
+    // Fallback to local file
+  }
+
   const db = await readDb();
   const newLog: AuditLog = {
     id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,

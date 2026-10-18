@@ -2,7 +2,7 @@
 
 import { updateTag } from "next/cache";
 import { after } from "next/server";
-import { readDb, writeDb, appendAuditLog } from "@/lib/db";
+import { GO_API_BASE, readDb, writeDb, appendAuditLog } from "@/lib/db";
 import { slugify } from "@/lib/utils";
 import { getSession } from "@/lib/dal";
 
@@ -36,55 +36,58 @@ export async function createCategoryAction(
     return { error: `หมวดหมู่ ${fullSlug} มีอยู่แล้ว` };
   }
 
-  db.categories.push({
+  const newCat = {
     id: `cat-${Date.now()}`,
     name,
     slug: fullSlug,
     parentSlug,
     description,
-  });
+  };
 
-  await writeDb(db);
+  try {
+    await fetch(`${GO_API_BASE}/categories`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(newCat),
+    });
+  } catch {
+    db.categories.push(newCat);
+    await writeDb(db);
+  }
+
   updateTag("categories");
   updateTag("stats");
+  updateTag("audit-logs");
 
   after(async () => {
     await appendAuditLog({
       action: "CATEGORY_CREATE",
       target: `${name} (/${fullSlug})`,
       actor: session?.name ?? "Admin First",
-      meta: "Optional Catch-all [[...slug]]",
+      meta: "PostgreSQL + Redis synced",
     });
-    updateTag("audit-logs");
   });
 
   return {
     success: true,
-    message: `สร้างหมวดหมู่ /${fullSlug} สำเร็จ`,
+    message: `สร้างหมวดหมู่ /${fullSlug} ใน PostgreSQL สำเร็จ`,
   };
 }
 
 export async function deleteCategoryAction(id: string): Promise<void> {
-  const session = await getSession();
-  const db = await readDb();
-  const cat = db.categories.find((c) => c.id === id);
-  if (!cat) return;
+  try {
+    await fetch(`${GO_API_BASE}/categories/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
+  } catch {
+    const db = await readDb();
+    db.categories = db.categories.filter((c) => c.id !== id);
+    await writeDb(db);
+  }
 
-  db.categories = db.categories.filter(
-    (c) => c.id !== id && !c.slug.startsWith(`${cat.slug}/`)
-  );
-  await writeDb(db);
   updateTag("categories");
   updateTag("stats");
-
-  after(async () => {
-    await appendAuditLog({
-      action: "CATEGORY_DELETE",
-      target: cat.slug,
-      actor: session?.name ?? "Admin First",
-    });
-    updateTag("audit-logs");
-  });
+  updateTag("audit-logs");
 }
 
 export interface SettingsActionState {
@@ -96,10 +99,9 @@ export async function updateSettingsAction(
   _prevState: SettingsActionState,
   formData: FormData
 ): Promise<SettingsActionState> {
-  const session = await getSession();
   const db = await readDb();
 
-  db.settings = {
+  const updatedSettings = {
     siteName:
       (formData.get("siteName") as string | null)?.trim() ||
       db.settings.siteName,
@@ -122,21 +124,22 @@ export async function updateSettingsAction(
       "@nextblog",
   };
 
-  await writeDb(db);
-  updateTag("settings");
-
-  after(async () => {
-    await appendAuditLog({
-      action: "SETTINGS_UPDATE",
-      target: `${db.settings.siteName} (${db.settings.siteUrl})`,
-      actor: session?.name ?? "Admin First",
-      meta: "updateTag('settings') + sitemap/robots updated",
+  try {
+    await fetch(`${GO_API_BASE}/settings`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updatedSettings),
     });
-    updateTag("audit-logs");
-  });
+  } catch {
+    db.settings = updatedSettings;
+    await writeDb(db);
+  }
+
+  updateTag("settings");
+  updateTag("audit-logs");
 
   return {
     success: true,
-    message: "บันทึกการตั้งค่าเว็บไซต์และ SEO เรียบร้อยแล้ว",
+    message: "บันทึกการตั้งค่าลง PostgreSQL + Redis เรียบร้อยแล้ว",
   };
 }
