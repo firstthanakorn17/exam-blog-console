@@ -17,6 +17,7 @@ import {
   Plus,
   Search,
   Globe,
+  Radar,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { revalidateAllCacheAction } from "@/actions/post.actions";
@@ -28,6 +29,11 @@ const NAV_ITEMS = [
     label: "ภาพรวมระบบ",
     icon: LayoutDashboard,
     exact: true,
+  },
+  {
+    href: "/console/scraper",
+    label: "ดึงข่าวสอบ FB (Scraper)",
+    icon: Radar,
   },
   {
     href: "/console/posts",
